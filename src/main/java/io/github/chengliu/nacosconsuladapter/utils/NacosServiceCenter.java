@@ -32,6 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.Disposable;
 import reactor.core.publisher.EmitterProcessor;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
 
 import javax.annotation.PreDestroy;
 import java.util.*;
@@ -63,7 +64,7 @@ public class NacosServiceCenter {
 
     private Map<String, AtomicLong> serviceVersionMap = new ConcurrentHashMap<>();
 
-    private EmitterProcessor<Result<String>> emitterProcessor = EmitterProcessor.create(3, true);
+    private Sinks.Many<Result<String>> emitterProcessor = Sinks.many().multicast().onBackpressureBuffer(3, true);
 
     /**
      * 消费所有热数据源数据消费者,仅用于打印日志
@@ -102,7 +103,7 @@ public class NacosServiceCenter {
         services = new HashSet<>(newServiceNameList);
         subscribe(services);
         //订阅热数据源实时修改数据
-        allChangeConsumer = emitterProcessor.subscribe(change -> log.debug("consume service change {}:{}.", change.getData(), change.getChangeIndex()));
+        allChangeConsumer = emitterProcessor.asFlux().subscribe(change -> log.debug("consume service change {}:{}.", change.getData(), change.getChangeIndex()));
     }
 
     /**
@@ -112,7 +113,7 @@ public class NacosServiceCenter {
      * @return
      */
     public Flux<Result<String>> getChangeHotSource(String serviceName) {
-        return emitterProcessor.filter(result -> result.getData().equals(serviceName));
+        return emitterProcessor.asFlux().filter(result -> result.getData().equals(serviceName));
     }
 
     /**
@@ -185,7 +186,7 @@ public class NacosServiceCenter {
      */
     public void publish(String serviceName) {
         Long version = incrementServiceVersion(serviceName);
-        emitterProcessor.onNext(new Result<String>(serviceName, version));
+        emitterProcessor.tryEmitNext(new Result<String>(serviceName, version));
     }
 
     /**
